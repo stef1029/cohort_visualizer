@@ -1,8 +1,8 @@
 """
-Example usage of the cohort_visualizer package.
+Simplified dashboard generator script.
 
-This script demonstrates how to use the cohort_visualizer package to generate
-an interactive dashboard for your cohort data.
+This script takes a cohort directory and generates an interactive HTML dashboard.
+Just modify the variables at the top of the script and run it.
 """
 
 import os
@@ -14,97 +14,107 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from cohort_visualizer.core.cohort_date_organizer import CohortDateOrganizer
 from cohort_visualizer.visualization.dashboard_generator import DashboardGenerator
-from cohort_visualizer.visualization.plot_generator import PlotGenerator
+
+
+def generate_dashboard(cohort_directory, 
+                      multi=True, 
+                      portable_data=True, 
+                      use_existing_cohort_info=True,
+                      output_dir=None,
+                      open_browser=True):
+    """
+    Generate an interactive dashboard for the specified cohort directory.
+    
+    Args:
+        cohort_directory: Path to the cohort directory containing session data
+        multi: Whether the data is split across multiple mouse folders
+        portable_data: Whether to use portable data format vs. full raw-data logic
+        use_existing_cohort_info: Whether to use existing cohort_info.json if available
+        output_dir: Directory to save the dashboard (default: cohort_directory/dashboard)
+        open_browser: Whether to open the dashboard in a browser after generation
+        
+    Returns:
+        Path to the generated dashboard HTML file
+    """
+    # Convert string path to Path object if needed
+    cohort_directory = Path(cohort_directory)
+    
+    print(f"Initialising cohort organiser for: {cohort_directory}")
+    
+    # Initialise the cohort organiser
+    cohort_organiser = CohortDateOrganizer(
+        cohort_directory,
+        multi=multi,
+        portable_data=portable_data,
+        use_existing_cohort_info=use_existing_cohort_info,
+        plot=False  # Don't create the default cohort info plot
+    )
+    
+    print("Generating interactive dashboard...")
+    
+    # Create dashboard generator
+    dashboard_generator = DashboardGenerator(cohort_organiser)
+    
+    # Generate the dashboard
+    if output_dir is None:
+        output_dir = cohort_directory / "dashboard"
+    
+    dashboard_path = dashboard_generator.generate_dashboard(output_dir)
+    
+    print(f"Dashboard generated successfully at: {dashboard_path}")
+    
+    # Open the dashboard in a browser if requested
+    if open_browser:
+        print("Opening dashboard in web browser...")
+        dashboard_generator.open_dashboard()
+    
+    return dashboard_path
 
 
 def main():
     """
-    Example of how to use the cohort_visualizer package.
+    Main function to generate a dashboard using the defined variables.
     """
-    # Replace with your actual cohort directory
-    cohort_directory = Path("D:\Data\September_portable")
+    # =====================================================
+    # CONFIGURATION VARIABLES - Modify these as needed
+    # =====================================================
     
-    print(f"Initializing cohort organizer for: {cohort_directory}")
+    # Path to your cohort directory containing session data
+    # Replace this with your actual cohort directory path
+    COHORT_DIRECTORY = "D:/Data/September_portable"
     
-    # Initialize the cohort organizer
-    cohort_organizer = CohortDateOrganizer(
-        cohort_directory,
-        multi=True,              # Data is split across multiple mouse folders
-        portable_data=True,      # Using portable data format
-        use_existing_cohort_info=True,  # Use existing cohort_info.json if available
-        plot=False               # Don't create the default cohort info plot
+    # Whether the data is split across multiple mouse folders
+    MULTI = True
+    
+    # Whether to use portable data format vs. full raw-data logic
+    PORTABLE_DATA = True
+    
+    # Whether to use existing cohort_info.json if available
+    USE_EXISTING_COHORT_INFO = True
+    
+    # Directory to save the dashboard (leave as None to use cohort_directory/dashboard)
+    OUTPUT_DIR = None
+    
+    # Whether to open the dashboard in a browser after generation
+    OPEN_BROWSER = True
+    
+    # =====================================================
+    # End of configuration variables
+    # =====================================================
+    
+    # Generate the dashboard with the configured settings
+    dashboard_path = generate_dashboard(
+        cohort_directory=COHORT_DIRECTORY,
+        multi=MULTI,
+        portable_data=PORTABLE_DATA,
+        use_existing_cohort_info=USE_EXISTING_COHORT_INFO,
+        output_dir=OUTPUT_DIR,
+        open_browser=OPEN_BROWSER
     )
     
-    # Example 1: Get and print date summary
-    print("\nExample 1: Date Summary")
-    date_summary = cohort_organizer.get_date_summary()
-    print(date_summary.head())
-    
-    # Example 2: Get and print mouse calendar
-    print("\nExample 2: Mouse Calendar")
-    mouse_calendar = cohort_organizer.get_mouse_calendar()
-    print(mouse_calendar.head())
-    
-    # Example 3: Get information for a specific date
-    print("\nExample 3: Sessions on a specific date")
-    # Get the first date in the data
-    first_date = cohort_organizer.get_sessions_by_date().keys()
-    if first_date:
-        first_date = list(first_date)[0]
-        print(f"Sessions on {first_date}:")
-        sessions = cohort_organizer.get_date_session_details(first_date)
-        for mouse_id, mouse_sessions in sessions.items():
-            print(f"  Mouse: {mouse_id}")
-            for session_id, session_details in mouse_sessions.items():
-                print(f"    - {session_id}: Phase {session_details.get('phase')}")
-    
-    # Example 4: Generate some static plots
-    print("\nExample 4: Generating static plots")
-    plot_generator = PlotGenerator(cohort_organizer)
-    
-    # Create a directory for the plots
-    plots_dir = Path("example_plots")
-    plots_dir.mkdir(exist_ok=True)
-    
-    # Generate activity heatmap
-    print("  Generating activity heatmap...")
-    plot_generator.create_activity_heatmap(
-        output_path=plots_dir / "activity_heatmap.png", 
-        show=False
-    )
-    
-    # Generate phase distribution plot
-    print("  Generating phase distribution plot...")
-    plot_generator.create_phase_distribution_barplot(
-        output_path=plots_dir / "phase_distribution.png", 
-        show=False
-    )
-    
-    # Generate weekly activity plot
-    print("  Generating weekly activity plot...")
-    plot_generator.create_weekly_activity_plot(
-        output_path=plots_dir / "weekly_activity.png", 
-        show=False
-    )
-    
-    print(f"  Static plots saved to: {plots_dir.absolute()}")
-    
-    # Example 5: Generate the interactive dashboard
-    print("\nExample 5: Generating interactive dashboard")
-    dashboard_generator = DashboardGenerator(cohort_organizer)
-    
-    # Generate dashboard in a custom directory
-    dashboard_dir = Path("example_dashboard")
-    dashboard_path = dashboard_generator.generate_dashboard(dashboard_dir)
-    
-    print(f"Dashboard generated at: {dashboard_path}")
-    print("Opening dashboard in web browser...")
-    
-    # Open the dashboard in the default browser
-    dashboard_generator.open_dashboard()
-    
-    print("\nExample completed successfully!")
+    print(f"Dashboard generation complete! View your dashboard at: {dashboard_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

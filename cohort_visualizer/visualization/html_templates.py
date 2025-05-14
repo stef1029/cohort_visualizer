@@ -481,7 +481,1042 @@ BASE_TEMPLATE = """<!DOCTYPE html>
 # JavaScript part of the template (truncated for brevity)
 JAVASCRIPT_TEMPLATE = """
     <script>
-        // Data loading and initialization code here...
+        // Global variables to store data
+        let activityData = [];
+        let phaseDistributionData = [];
+        let mouseHeatmapData = [];
+        let mouseProgressionData = [];
+        let weeklyData = [];
+        let sessionDetailsData = [];
+        let cohortMetadata = {};
+        
+        // Charts 
+        let activityChart;
+        let phaseDistributionChart;
+        let weeklyActivityChart;
+        let mouseProgressionChart;
+        let phaseDistributionByMiceChart;
+        let phaseTimelineChart;
+        
+        // DOM Elements
+        const mouseSelector = document.getElementById('mouseSelector');
+        const phaseSelector = document.getElementById('phaseSelector');
+        const monthSelector = document.getElementById('monthSelector');
+        const mouseFilterHeatmap = document.getElementById('mouseFilterHeatmap');
+        
+        // Load all data when the document is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            // Load all JSON data files
+            Promise.all([
+                fetch('dashboard_data/date_activity.json').then(response => response.json()),
+                fetch('dashboard_data/phase_distribution.json').then(response => response.json()),
+                fetch('dashboard_data/mouse_heatmap.json').then(response => response.json()),
+                fetch('dashboard_data/mouse_progression.json').then(response => response.json()),
+                fetch('dashboard_data/weekly_summary.json').then(response => response.json()),
+                fetch('dashboard_data/session_details.json').then(response => response.json()),
+                fetch('dashboard_data/cohort_metadata.json').then(response => response.json())
+            ]).then(([activity, phase, heatmap, progression, weekly, sessions, metadata]) => {
+                // Store data in global variables
+                activityData = activity;
+                phaseDistributionData = phase;
+                mouseHeatmapData = heatmap;
+                mouseProgressionData = progression;
+                weeklyData = weekly;
+                sessionDetailsData = sessions;
+                cohortMetadata = metadata;
+                
+                // Initialize all visualizations
+                initializeCharts();
+                createHeatmap();
+                initializeSessionTables();
+                
+                // Setup event listeners for filters and selectors
+                setupEventListeners();
+            }).catch(error => {
+                console.error('Error loading data:', error);
+                alert('Failed to load dashboard data. See console for details.');
+            });
+        });
+        
+        // Initialize all charts
+        function initializeCharts() {
+            // Activity Chart
+            const activityCtx = document.getElementById('activityChart').getContext('2d');
+            activityChart = new Chart(activityCtx, {
+                type: 'bar',
+                data: {
+                    labels: activityData.map(d => d.Date),
+                    datasets: [{
+                        label: 'Number of Sessions',
+                        data: activityData.map(d => d.Sessions),
+                        backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Sessions'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Phase Distribution Chart
+            const phaseCtx = document.getElementById('phaseDistributionChart').getContext('2d');
+            const phaseColors = getPhaseColors(phaseDistributionData.map(d => d.Phase));
+            
+            phaseDistributionChart = new Chart(phaseCtx, {
+                type: 'pie',
+                data: {
+                    labels: phaseDistributionData.map(d => `Phase ${d.Phase}`),
+                    datasets: [{
+                        data: phaseDistributionData.map(d => d.Sessions),
+                        backgroundColor: phaseColors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = Math.round((value / total) * 100);
+                                    return `${label}: ${value} sessions (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Weekly Activity Chart
+            const weeklyCtx = document.getElementById('weeklyActivityChart').getContext('2d');
+            weeklyActivityChart = new Chart(weeklyCtx, {
+                type: 'line',
+                data: {
+                    labels: weeklyData.map(d => d.WeekLabel),
+                    datasets: [{
+                        label: 'Sessions per Week',
+                        data: weeklyData.map(d => d.Sessions),
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Sessions'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Week'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Initialize mouse progression chart (empty until mouse is selected)
+            const mouseProgressionCtx = document.getElementById('mouseProgressionChart').getContext('2d');
+            mouseProgressionChart = new Chart(mouseProgressionCtx, {
+                type: 'scatter',
+                data: {
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Phase'
+                            }
+                        },
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'day'
+                            },
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Initialize other charts for phase analysis
+            initializePhaseCharts();
+        }
+        
+        // Initialize phase-specific charts
+        function initializePhaseCharts() {
+            // Phase Distribution by Mice Chart
+            const phaseDistByMiceCtx = document.getElementById('phaseDistributionByMiceChart').getContext('2d');
+            phaseDistributionByMiceChart = new Chart(phaseDistByMiceCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: []
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right'
+                        }
+                    }
+                }
+            });
+            
+            // Phase Timeline Chart
+            const phaseTimelineCtx = document.getElementById('phaseTimelineChart').getContext('2d');
+            phaseTimelineChart = new Chart(phaseTimelineCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Sessions',
+                        data: [],
+                        backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                        borderColor: 'rgba(153, 102, 255, 1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Number of Sessions'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Create heatmap visualization
+        function createHeatmap() {
+            const margin = {top: 30, right: 30, bottom: 100, left: 100};
+            const width = 1000 - margin.left - margin.right;
+            const height = 500 - margin.top - margin.bottom;
+            
+            // Clear existing heatmap
+            d3.select("#heatmapContainer").html("");
+            
+            // Create SVG
+            const svg = d3.select("#heatmapContainer")
+              .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+              .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            // Get unique dates and mice
+            const dates = [...new Set(mouseHeatmapData.map(d => d.Date))].sort();
+            const mice = [...new Set(mouseHeatmapData.map(d => d.index))];
+            
+            // Build X and Y scales
+            const x = d3.scaleBand()
+              .range([0, width])
+              .domain(mice)
+              .padding(0.05);
+            
+            const y = d3.scaleBand()
+              .range([0, height])
+              .domain(dates)
+              .padding(0.05);
+            
+            // Add X and Y axis labels
+            svg.append("g")
+              .style("font-size", 15)
+              .attr("transform", `translate(0,${height})`)
+              .call(d3.axisBottom(x).tickSize(0))
+              .selectAll("text")
+                .attr("transform", "translate(-10,0)rotate(-45)")
+                .style("text-anchor", "end");
+            
+            svg.append("g")
+              .style("font-size", 15)
+              .call(d3.axisLeft(y).tickSize(0));
+            
+            // Build color scale
+            const maxValue = d3.max(mouseHeatmapData, d => {
+                const mouseCol = d.index;
+                return d[mouseCol] || 0;
+            });
+            
+            const colorScale = d3.scaleSequential()
+              .interpolator(d3.interpolateYlGnBu)
+              .domain([0, maxValue]);
+            
+            // Create a tooltip
+            const tooltip = d3.select("#heatmapContainer")
+              .append("div")
+                .style("opacity", 0)
+                .attr("class", "tooltip")
+                .style("background-color", "white")
+                .style("border", "solid")
+                .style("border-width", "2px")
+                .style("border-radius", "5px")
+                .style("padding", "5px")
+                .style("position", "absolute");
+            
+            // Add the heatmap cells
+            for (let date of dates) {
+                const dateData = mouseHeatmapData.find(d => d.Date === date);
+                
+                if (dateData) {
+                    for (let mouse of mice) {
+                        const value = dateData[mouse] || 0;
+                        
+                        svg.append("rect")
+                            .attr("x", x(mouse))
+                            .attr("y", y(date))
+                            .attr("width", x.bandwidth())
+                            .attr("height", y.bandwidth())
+                            .attr("class", "heatmap-cell")
+                            .style("fill", value === 0 ? "#f8f9fa" : colorScale(value))
+                            .on("mouseover", function(event) {
+                                tooltip.style("opacity", 1);
+                                d3.select(this)
+                                    .style("stroke", "black")
+                                    .style("stroke-width", "2px");
+                            })
+                            .on("mousemove", function(event) {
+                                tooltip
+                                    .html(`Date: ${date}<br>Mouse: ${mouse}<br>Sessions: ${value}`)
+                                    .style("left", (event.pageX + 10) + "px")
+                                    .style("top", (event.pageY - 20) + "px");
+                            })
+                            .on("mouseleave", function() {
+                                tooltip.style("opacity", 0);
+                                d3.select(this)
+                                    .style("stroke", "white")
+                                    .style("stroke-width", "1px");
+                            });
+                        
+                        // Add text for non-zero values
+                        if (value > 0) {
+                            svg.append("text")
+                                .attr("x", x(mouse) + x.bandwidth()/2)
+                                .attr("y", y(date) + y.bandwidth()/2)
+                                .attr("text-anchor", "middle")
+                                .attr("dominant-baseline", "central")
+                                .style("font-size", "12px")
+                                .style("fill", value > maxValue/2 ? "white" : "black")
+                                .text(value);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Initialize DataTables for session tables
+        function initializeSessionTables() {
+            // All sessions table
+            $('#allSessionsTable').DataTable({
+                data: sessionDetailsData,
+                columns: [
+                    { data: 'Date' },
+                    { data: 'Time' },
+                    { data: 'Mouse' },
+                    { data: 'Session ID' },
+                    { 
+                        data: 'Phase',
+                        render: function(data) {
+                            return `<span class="badge phase-${data}">${data}</span>`;
+                        }
+                    },
+                    { data: 'Total Trials' },
+                    { data: 'Video Length (min)' },
+                    { 
+                        data: null,
+                        render: function(data) {
+                            return '<button class="btn btn-sm btn-primary view-details" data-session-id="' + 
+                                   data['Session ID'] + '">View</button>';
+                        }
+                    }
+                ],
+                order: [[0, 'desc'], [1, 'desc']],
+                pageLength: 25
+            });
+            
+            // Mouse sessions table (initially empty, populated on mouse selection)
+            $('#mouseSessionsTable').DataTable({
+                columns: [
+                    { data: 'Date' },
+                    { data: 'Time' },
+                    { data: 'Session ID' },
+                    { 
+                        data: 'Phase',
+                        render: function(data) {
+                            return `<span class="badge phase-${data}">${data}</span>`;
+                        }
+                    },
+                    { data: 'Total Trials' },
+                    { data: 'Video Length (min)' }
+                ],
+                order: [[0, 'desc'], [1, 'desc']]
+            });
+            
+            // Phase sessions table (initially empty, populated on phase selection)
+            $('#phaseSessionsTable').DataTable({
+                columns: [
+                    { data: 'Date' },
+                    { data: 'Time' },
+                    { data: 'Mouse' },
+                    { data: 'Session ID' },
+                    { data: 'Total Trials' },
+                    { data: 'Video Length (min)' }
+                ],
+                order: [[0, 'desc'], [1, 'desc']]
+            });
+            
+            // Set up session details modal
+            $('#allSessionsTable').on('click', '.view-details', function() {
+                const sessionId = $(this).data('session-id');
+                showSessionDetails(sessionId);
+            });
+        }
+        
+        // Set up event listeners for interactive elements
+        function setupEventListeners() {
+            // Mouse selector change event
+            mouseSelector.addEventListener('change', function() {
+                const selectedMouse = this.value;
+                updateMouseAnalysis(selectedMouse);
+            });
+            
+            // Phase selector change event
+            phaseSelector.addEventListener('change', function() {
+                const selectedPhase = this.value;
+                updatePhaseAnalysis(selectedPhase);
+            });
+            
+            // Month selector change event
+            monthSelector.addEventListener('change', function() {
+                const selectedMonth = this.value;
+                updateHeatmapByMonth(selectedMonth);
+            });
+            
+            // Apply filters button
+            document.getElementById('applyFilters').addEventListener('click', function() {
+                applySessionFilters();
+            });
+            
+            // Reset filters button
+            document.getElementById('resetFilters').addEventListener('click', function() {
+                resetSessionFilters();
+            });
+            
+            // Trigger change events for default selections
+            if (mouseSelector.options.length > 0) {
+                updateMouseAnalysis(mouseSelector.value);
+            }
+            
+            if (phaseSelector.options.length > 0) {
+                updatePhaseAnalysis(phaseSelector.value);
+            }
+        }
+        
+        // Update mouse analysis section
+        function updateMouseAnalysis(mouseId) {
+            // Update mouse progression chart
+            updateMouseProgressionChart(mouseId);
+            
+            // Update mouse sessions table
+            updateMouseSessionsTable(mouseId);
+            
+            // Update mouse calendar
+            updateMouseCalendar(mouseId);
+        }
+        
+        // Update mouse progression chart
+        function updateMouseProgressionChart(mouseId) {
+            // Filter data for the selected mouse
+            const mouseData = mouseProgressionData.filter(d => d.Mouse === mouseId);
+            
+            // Group by phase
+            const phaseGroups = {};
+            mouseData.forEach(d => {
+                if (!phaseGroups[d.Phase]) {
+                    phaseGroups[d.Phase] = [];
+                }
+                phaseGroups[d.Phase].push({
+                    x: new Date(d.Date),
+                    y: d.Phase
+                });
+            });
+            
+            // Create datasets
+            const datasets = [];
+            const phaseColors = {
+                '1': '#007bff',
+                '2': '#28a745',
+                '3': '#17a2b8',
+                '4': '#ffc107',
+                '5': '#dc3545',
+                '6': '#6610f2',
+                '7': '#fd7e14',
+                '8': '#20c997',
+                '9': '#e83e8c',
+                '10': '#6f42c1',
+                '3b': '#138496',
+                '4b': '#d39e00',
+                'test': '#6c757d'
+            };
+            
+            Object.keys(phaseGroups).forEach(phase => {
+                datasets.push({
+                    label: `Phase ${phase}`,
+                    data: phaseGroups[phase],
+                    backgroundColor: phaseColors[phase] || '#6c757d',
+                    borderColor: phaseColors[phase] || '#6c757d',
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                });
+            });
+            
+            // Add connecting line dataset if there's data
+            if (mouseData.length > 0) {
+                const sortedData = [...mouseData].sort((a, b) => 
+                    new Date(a.Date) - new Date(b.Date));
+                
+                datasets.push({
+                    label: 'Progression',
+                    data: sortedData.map(d => ({
+                        x: new Date(d.Date),
+                        y: d.Phase
+                    })),
+                    backgroundColor: 'rgba(0,0,0,0.1)',
+                    borderColor: 'rgba(0,0,0,0.2)',
+                    borderWidth: 1,
+                    borderDash: [5, 5],
+                    pointRadius: 0,
+                    fill: false,
+                    showLine: true
+                });
+            }
+            
+            // Update chart
+            mouseProgressionChart.data.datasets = datasets;
+            mouseProgressionChart.update();
+        }
+        
+        // Update mouse sessions table
+        function updateMouseSessionsTable(mouseId) {
+            const mouseData = sessionDetailsData.filter(d => d.Mouse === mouseId);
+            $('#mouseSessionsTable').DataTable().clear().rows.add(mouseData).draw();
+        }
+        
+        // Update mouse calendar
+        function updateMouseCalendar(mouseId) {
+            // Create a calendar-like visualization for the mouse
+            const calendarContainer = document.getElementById('mouseCalendarContainer');
+            calendarContainer.innerHTML = '';
+            
+            // Filter sessions for this mouse
+            const mouseSessions = sessionDetailsData.filter(d => d.Mouse === mouseId);
+            
+            // Group by month and date
+            const sessionsByMonth = {};
+            mouseSessions.forEach(session => {
+                const date = new Date(session.Date);
+                const year = date.getFullYear();
+                const month = date.getMonth();
+                const key = `${year}-${month}`;
+                
+                if (!sessionsByMonth[key]) {
+                    sessionsByMonth[key] = {
+                        year: year,
+                        month: month,
+                        sessions: {}
+                    };
+                }
+                
+                const day = date.getDate();
+                if (!sessionsByMonth[key].sessions[day]) {
+                    sessionsByMonth[key].sessions[day] = [];
+                }
+                
+                sessionsByMonth[key].sessions[day].push(session);
+            });
+            
+            // Create month calendars
+            Object.values(sessionsByMonth).sort((a, b) => {
+                return a.year !== b.year ? a.year - b.year : a.month - b.month;
+            }).forEach(monthData => {
+                createMonthCalendar(calendarContainer, monthData, mouseId);
+            });
+        }
+        
+        // Create a month calendar
+        function createMonthCalendar(container, monthData, mouseId) {
+            const monthNames = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ];
+            
+            // Create month container
+            const monthContainer = document.createElement('div');
+            monthContainer.className = 'card mb-3';
+            
+            // Create header
+            const header = document.createElement('div');
+            header.className = 'card-header';
+            header.innerHTML = `${monthNames[monthData.month]} ${monthData.year}`;
+            monthContainer.appendChild(header);
+            
+            // Create calendar body
+            const calendar = document.createElement('div');
+            calendar.className = 'card-body p-2';
+            
+            // Create table
+            const table = document.createElement('table');
+            table.className = 'table table-bordered';
+            
+            // Create header row with day names
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(day => {
+                const th = document.createElement('th');
+                th.className = 'text-center';
+                th.textContent = day;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+            
+            // Create calendar body
+            const tbody = document.createElement('tbody');
+            
+            // Get first day of month and last day
+            const firstDay = new Date(monthData.year, monthData.month, 1);
+            const lastDay = new Date(monthData.year, monthData.month + 1, 0);
+            
+            let day = 1;
+            let currentWeek = document.createElement('tr');
+            
+            // Empty cells for days before the first day of month
+            for (let i = 0; i < firstDay.getDay(); i++) {
+                const td = document.createElement('td');
+                td.className = 'text-center text-muted bg-light';
+                currentWeek.appendChild(td);
+            }
+            
+            // Cells for each day of the month
+            while (day <= lastDay.getDate()) {
+                // If we've reached the end of a week, start a new row
+                if (firstDay.getDay() + day - 1 > 6 && (firstDay.getDay() + day - 1) % 7 === 0) {
+                    tbody.appendChild(currentWeek);
+                    currentWeek = document.createElement('tr');
+                }
+                
+                const td = document.createElement('td');
+                td.className = 'text-center';
+                
+                // Check if there are sessions on this day
+                const daySessions = monthData.sessions[day] || [];
+                
+                if (daySessions.length > 0) {
+                    // Day with sessions
+                    td.classList.add('bg-primary', 'text-white');
+                    
+                    // Create a badge with session count if more than 1
+                    if (daySessions.length > 1) {
+                        td.innerHTML = `${day} <span class="badge bg-white text-primary">${daySessions.length}</span>`;
+                    } else {
+                        td.textContent = day;
+                    }
+                    
+                    // Add tooltip with session details
+                    td.setAttribute('title', `${daySessions.length} session(s)`);
+                    td.style.cursor = 'pointer';
+                    
+                    // Add click event to show sessions for this day
+                    td.addEventListener('click', function() {
+                        // Format date for display
+                        const formattedDate = new Date(monthData.year, monthData.month, day)
+                            .toISOString().split('T')[0];
+                        
+                        // Filter and display sessions for this day and mouse
+                        const dayMouseSessions = sessionDetailsData.filter(
+                            s => s.Date === formattedDate && s.Mouse === mouseId
+                        );
+                        
+                        // Show modal with sessions
+                        showDaySessionsModal(formattedDate, mouseId, dayMouseSessions);
+                    });
+                } else {
+                    // Day without sessions
+                    td.textContent = day;
+                }
+                
+                currentWeek.appendChild(td);
+                day++;
+            }
+            
+            // Fill remaining cells in the last week
+            const remainingCells = 7 - currentWeek.children.length;
+            for (let i = 0; i < remainingCells; i++) {
+                const td = document.createElement('td');
+                td.className = 'text-center text-muted bg-light';
+                currentWeek.appendChild(td);
+            }
+            
+            tbody.appendChild(currentWeek);
+            table.appendChild(tbody);
+            calendar.appendChild(table);
+            monthContainer.appendChild(calendar);
+            container.appendChild(monthContainer);
+        }
+        
+        // Show modal with sessions for a specific day
+        function showDaySessionsModal(date, mouseId, sessions) {
+            const modal = new bootstrap.Modal(document.getElementById('sessionDetailsModal'));
+            const modalTitle = document.getElementById('sessionModalLabel');
+            const modalBody = document.getElementById('sessionModalBody');
+            
+            modalTitle.textContent = `Sessions for ${mouseId} on ${date}`;
+            
+            // Create table with session details
+            let content = `
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Session ID</th>
+                            <th>Phase</th>
+                            <th>Trials</th>
+                            <th>Video Length</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            sessions.forEach(session => {
+                content += `
+                    <tr>
+                        <td>${session.Time}</td>
+                        <td>${session['Session ID']}</td>
+                        <td><span class="badge phase-${session.Phase}">Phase ${session.Phase}</span></td>
+                        <td>${session['Total Trials'] || 'N/A'}</td>
+                        <td>${session['Video Length (min)'] || 'N/A'}</td>
+                    </tr>
+                `;
+            });
+            
+            content += `
+                    </tbody>
+                </table>
+            `;
+            
+            modalBody.innerHTML = content;
+            modal.show();
+        }
+        
+        // Update phase analysis section
+        function updatePhaseAnalysis(phase) {
+            // Filter sessions for this phase
+            const phaseSessions = sessionDetailsData.filter(d => d.Phase == phase);
+            
+            // Update sessions table
+            $('#phaseSessionsTable').DataTable().clear().rows.add(phaseSessions).draw();
+            
+            // Update mice distribution chart
+            updatePhaseDistributionByMice(phase);
+            
+            // Update phase timeline chart
+            updatePhaseTimeline(phase);
+        }
+        
+        // Update mice distribution chart for a specific phase
+        function updatePhaseDistributionByMice(phase) {
+            // Count sessions by mouse for this phase
+            const phaseSessions = sessionDetailsData.filter(d => d.Phase == phase);
+            
+            const mouseSessionCounts = {};
+            phaseSessions.forEach(session => {
+                const mouse = session.Mouse;
+                mouseSessionCounts[mouse] = (mouseSessionCounts[mouse] || 0) + 1;
+            });
+            
+            // Convert to chart data
+            const labels = Object.keys(mouseSessionCounts);
+            const data = Object.values(mouseSessionCounts);
+            
+            // Generate random colors for each mouse
+            const colors = labels.map((_, index) => {
+                const hue = (360 * index / labels.length) % 360;
+                return `hsl(${hue}, 70%, 60%)`;
+            });
+            
+            // Update chart
+            phaseDistributionByMiceChart.data.labels = labels;
+            phaseDistributionByMiceChart.data.datasets[0].data = data;
+            phaseDistributionByMiceChart.data.datasets[0].backgroundColor = colors;
+            phaseDistributionByMiceChart.update();
+        }
+        
+        // Update phase timeline chart
+        function updatePhaseTimeline(phase) {
+            // Filter sessions for this phase
+            const phaseSessions = sessionDetailsData.filter(d => d.Phase == phase);
+            
+            // Group sessions by date
+            const sessionsByDate = {};
+            phaseSessions.forEach(session => {
+                const date = session.Date;
+                if (!sessionsByDate[date]) {
+                    sessionsByDate[date] = 0;
+                }
+                sessionsByDate[date]++;
+            });
+            
+            // Convert to sorted arrays for chart
+            const dates = Object.keys(sessionsByDate).sort();
+            const counts = dates.map(date => sessionsByDate[date]);
+            
+            // Update chart
+            phaseTimelineChart.data.labels = dates;
+            phaseTimelineChart.data.datasets[0].data = counts;
+            phaseTimelineChart.options.scales.y.title.text = 'Sessions in Phase ' + phase;
+            phaseTimelineChart.update();
+        }
+        
+        // Update heatmap by month filter
+        function updateHeatmapByMonth(month) {
+            // Filter data by selected month
+            let filteredData;
+            
+            if (month === 'all') {
+                filteredData = [...mouseHeatmapData];
+            } else {
+                filteredData = mouseHeatmapData.filter(d => d.Date.startsWith(month));
+            }
+            
+            // Update heatmap with filtered data
+            // (This would require rebuilding the heatmap - for simplicity, we'll just log this)
+            console.log(`Updated heatmap to show month: ${month}`);
+            // In a real implementation, you'd rebuild the heatmap here
+        }
+        
+        // Apply filters to session explorer
+        function applySessionFilters() {
+            const startDate = document.getElementById('startDateFilter').value;
+            const endDate = document.getElementById('endDateFilter').value;
+            const mouseFilter = getMultiSelectValues('mouseFilter');
+            const phaseFilter = getMultiSelectValues('phaseFilter');
+            
+            // Get the DataTable instance
+            const table = $('#allSessionsTable').DataTable();
+            
+            // Clear existing filters
+            table.search('').columns().search('').draw();
+            
+            // Apply date filter
+            if (startDate && endDate) {
+                $.fn.dataTable.ext.search.push(
+                    function(settings, data, dataIndex) {
+                        const sessionDate = data[0]; // 'Date' column
+                        return sessionDate >= startDate && sessionDate <= endDate;
+                    }
+                );
+            }
+            
+            // Apply mouse filter
+            if (!mouseFilter.includes('all')) {
+                table.column(2) // 'Mouse' column
+                    .search(mouseFilter.join('|'), true, false)
+                    .draw();
+            }
+            
+            // Apply phase filter
+            if (!phaseFilter.includes('all')) {
+                table.column(4) // 'Phase' column
+                    .search(phaseFilter.join('|'), true, false)
+                    .draw();
+            }
+            
+            // Redraw the table
+            table.draw();
+        }
+        
+        // Reset all filters
+        function resetSessionFilters() {
+            // Reset date inputs
+            document.getElementById('startDateFilter').value = '';
+            document.getElementById('endDateFilter').value = '';
+            
+            // Reset mouse filters
+            resetMultiSelect('mouseFilter');
+            
+            // Reset phase filters
+            resetMultiSelect('phaseFilter');
+            
+            // Clear all DataTable filters
+            const table = $('#allSessionsTable').DataTable();
+            $.fn.dataTable.ext.search.pop(); // Remove date filter
+            table.search('').columns().search('').draw();
+        }
+        
+        // Helper function to get values from a multi-select element
+        function getMultiSelectValues(elementId) {
+            const select = document.getElementById(elementId);
+            const result = [];
+            const options = select.options;
+            
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].selected) {
+                    result.push(options[i].value);
+                }
+            }
+            
+            return result;
+        }
+        
+        // Helper function to reset a multi-select element
+        function resetMultiSelect(elementId) {
+            const select = document.getElementById(elementId);
+            const options = select.options;
+            
+            for (let i = 0; i < options.length; i++) {
+                if (options[i].value === 'all') {
+                    options[i].selected = true;
+                } else {
+                    options[i].selected = false;
+                }
+            }
+        }
+        
+        // Show details for a specific session
+        function showSessionDetails(sessionId) {
+            // Find the session in the data
+            const session = sessionDetailsData.find(s => s['Session ID'] === sessionId);
+            
+            if (!session) {
+                console.error(`Session not found: ${sessionId}`);
+                return;
+            }
+            
+            // Set up modal
+            const modal = new bootstrap.Modal(document.getElementById('sessionDetailsModal'));
+            const modalTitle = document.getElementById('sessionModalLabel');
+            const modalBody = document.getElementById('sessionModalBody');
+            
+            modalTitle.textContent = `Session Details: ${sessionId}`;
+            
+            // Create content
+            let content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <strong>Date:</strong> ${session.Date}
+                        </div>
+                        <div class="mb-3">
+                            <strong>Time:</strong> ${session.Time}
+                        </div>
+                        <div class="mb-3">
+                            <strong>Mouse:</strong> ${session.Mouse}
+                        </div>
+                        <div class="mb-3">
+                            <strong>Phase:</strong> <span class="badge phase-${session.Phase}">${session.Phase}</span>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <strong>Total Trials:</strong> ${session['Total Trials'] || 'N/A'}
+                        </div>
+                        <div class="mb-3">
+                            <strong>Video Length:</strong> ${session['Video Length (min)'] || 'N/A'} min
+                        </div>
+                        <div class="mb-3">
+                            <strong>Is Complete:</strong> ${session['Is Complete'] ? 'Yes' : 'No'}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <h5>Session Path</h5>
+                        <code>${session.directory || 'N/A'}</code>
+                    </div>
+                </div>
+            `;
+            
+            modalBody.innerHTML = content;
+            modal.show();
+        }
+        
+        // Helper function to get colors for phases
+        function getPhaseColors(phases) {
+            const phaseColors = {
+                '1': '#007bff',
+                '2': '#28a745',
+                '3': '#17a2b8',
+                '4': '#ffc107',
+                '5': '#dc3545',
+                '6': '#6610f2',
+                '7': '#fd7e14',
+                '8': '#20c997',
+                '9': '#e83e8c',
+                '10': '#6f42c1',
+                '3b': '#138496',
+                '4b': '#d39e00',
+                'test': '#6c757d'
+            };
+            
+            return phases.map(phase => phaseColors[phase] || '#6c757d');
+        }
     </script>
 </body>
 </html>
@@ -569,4 +1604,4 @@ def generate_html_template(cohort_meta, date_generated, cohort_directory):
     
     # For simplicity, we're using a simplified JAVASCRIPT_TEMPLATE here
     # You should replace this with your full JavaScript code if needed
-    return template
+    return template + JAVASCRIPT_TEMPLATE
