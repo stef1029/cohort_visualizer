@@ -1,0 +1,10 @@
+**/example_plots/
+**/example_dashboard/
+*.pyc
+*.png
+*.egg-info
+*.egg
+*.log
+*.pyo
+*.pyd
+*.db
